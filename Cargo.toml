@@ -1,0 +1,25 @@
+[package]
+name = "base-endpoint"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.87"
+license = "MIT"
+repository = "https://github.com/base-rs/base-endpoint"
+description = "Runtime-independent binding and connecting through Base scheduler capabilities"
+readme = "readme.md"
+
+[dependencies]
+base-scheduler = "0.2.0"
+rustls = { version = "0.23.46", default-features = false, features = ["std", "ring", "tls12"], optional = true }
+event-listener = { version = "5.4.2", optional = true }
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc", "async-await"], optional = true }
+
+[dev-dependencies]
+base-scheduler-direct = "0.2.0"
+base-scheduler-tokio = "0.2.0"
+futures-lite = "2.6.1"
+rcgen = "0.14.7"
+tokio = { version = "1.53.3", features = ["rt", "net", "time"] }
+
+[features]
+rustls = ["dep:rustls", "dep:event-listener", "dep:futures-util"]
