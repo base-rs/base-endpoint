@@ -6,7 +6,9 @@ rust-version = "1.87"
 license = "MIT"
 repository = "https://github.com/base-rs/base-endpoint"
 description = "Runtime-independent binding and connecting through Base scheduler capabilities"
+documentation = "https://docs.rs/base-endpoint"
 readme = "readme.md"
+include = ["src/**", "tests/**", "design/**", "Cargo.toml", "readme.md", "license.md", "releases.md"]
 
 [dependencies]
 base-scheduler = "0.3.0"
@@ -23,6 +25,9 @@ tokio = { version = "1.53.3", features = ["rt", "net", "time"] }
 
 [features]
 rustls = ["dep:rustls", "dep:event-listener", "dep:futures-util"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [workspace]
 members = ["bake"]
