@@ -3,9 +3,7 @@
 
 //! Plaintext byte-stream capabilities for established transports.
 //!
-//! These contracts describe one direction, independently of whether the
-//! transport encrypts its bytes. Packet transports retain their own message
-//! boundaries and do not implement this interface by flattening packets.
+//! These contracts describe one direction, independently of whether the transport encrypts its bytes. Scheduler stream handles forward directly into them. Packet transports keep their message boundaries and datagram metadata in separate packet capabilities rather than flattening packets into this interface, so not every endpoint connection is a stream.
 
 use base_scheduler::{Cancellation, OperationResult, SocketStreamReader, SocketStreamWriter};
 use std::{future::Future, io};
