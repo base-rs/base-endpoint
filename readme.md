@@ -109,7 +109,7 @@ Rustls connections take the scheduler explicitly for each operation. `write` rep
 
 The first concrete transport covers TCP over IPv4/IPv6. UNIX sockets, UDP, URI parsing, named endpoints, socket-option policies, local source binding, Happy Eyeballs and built-in timeouts are follow-up work. TCP uses OS option defaults. The scheduler currently exposes only IP socket creation/address operations, so UNIX sockets need a scheduler extension. No concrete runtime is a production dependency; rustls is optional.
 
-Tests cover generic contracts with simulated providers, Rustls connection faults over a scripted transport, and real TLS 1.2/1.3 data transfer, authentication, ALPN, cancellation and closure with Direct/Tokio schedulers and independent blocking rustls peers. The package uses the published scheduler 0.3 family and Rust 1.87, without local scheduler overrides.
+Tests cover generic contracts with simulated providers, Rustls connection faults over a scripted transport, and real TLS 1.2/1.3 data transfer, authentication, ALPN, cancellation and closure with Direct/Tokio schedulers and independent blocking rustls peers. The package requires `base-scheduler 0.3` and Rust 1.87.
 
 `stream::{ReadableStream, WritableStream}` describes plaintext byte I/O for established transports. Scheduler stream handles forward directly into these small contracts. Packet boundaries and datagram metadata belong to separate packet capabilities; this interface does not imply that all endpoint connections are streams. HTTP protocol names and engine selection remain owned by HTTP, outside endpoint/TLS.
 
@@ -130,5 +130,7 @@ Prepare a release with `cargo bake cargo:version:patch` (or `minor`, `major`, or
 Version v0.1.0 is the initial release of the TCP and Rustls endpoints on the `base-scheduler 0.3` interface. See the [release notes](releases.md).
 
 ## See Also
+
+- [base-endpoint](https://github.com/base-rs/base-endpoint) — Runtime-independent binding and connecting through Base scheduler capabilities  <!-- bake-readme:package -->
 
 - [base-scheduler](https://github.com/base-rs/base-scheduler) supplies the socket, stream and cancellation capabilities that endpoints use.
