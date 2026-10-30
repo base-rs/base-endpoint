@@ -1,6 +1,6 @@
 # Base Endpoint
 
-Reusable descriptions of how to **connect** and **bind**, inspired by Ruby's [IO::Endpoint](https://github.com/socketry/io-endpoint). Application code depends on endpoint contracts; endpoint implementations handle resolution, socket creation and establishment through explicit `base-scheduler` capabilities. The initial API is experimental and unpublished.
+Reusable descriptions of how to **connect** and **bind**, inspired by Ruby's [IO::Endpoint](https://github.com/socketry/io-endpoint). Application code depends on endpoint contracts; endpoint implementations handle resolution, socket creation and establishment through explicit `base-scheduler` capabilities. The API is experimental.
 
 `ConnectEndpoint<S>` returns an associated `Connection`; `BindEndpoint<S>` returns a collection of associated `Listener` values. Implementations choose these representations, so consumers can abstract over establishment without hard-coding TCP or a particular runtime. The traits are separate so a connecting consumer does not need binding capabilities. The built-in TCP implementations return the scheduler's native socket type for use with its existing accept and I/O APIs.
 
@@ -109,6 +109,28 @@ Rustls connections take the scheduler explicitly for each operation. `write` rep
 
 The first concrete transport covers TCP over IPv4/IPv6. UNIX sockets, UDP, URI parsing, named endpoints, socket-option policies, local source binding, Happy Eyeballs and built-in timeouts are follow-up work. TCP uses OS option defaults. The scheduler currently exposes only IP socket creation/address operations, so UNIX sockets need a scheduler extension. No concrete runtime is a production dependency; rustls is optional.
 
-Run `cargo test --locked`, `cargo test --locked --all-features` and `cargo clippy --locked --all-features --all-targets -- -D warnings`. Tests cover generic contracts with simulated providers and real TLS 1.2/1.3 data transfer, authentication, ALPN, cancellation and closure with Direct/Tokio schedulers and independent blocking rustls peers. The package uses the published scheduler 0.3 family and Rust 1.87, without local scheduler overrides.
+Tests cover generic contracts with simulated providers, Rustls connection faults over a scripted transport, and real TLS 1.2/1.3 data transfer, authentication, ALPN, cancellation and closure with Direct/Tokio schedulers and independent blocking rustls peers. The package requires `base-scheduler 0.3` and Rust 1.87.
 
 `stream::{ReadableStream, WritableStream}` describes plaintext byte I/O for established transports. Scheduler stream handles forward directly into these small contracts. Packet boundaries and datagram metadata belong to separate packet capabilities; this interface does not imply that all endpoint connections are streams. HTTP protocol names and engine selection remain owned by HTTP, outside endpoint/TLS.
+
+## Development
+
+Install the launcher with `cargo install bake --locked`. The private `bake/` workspace member supplies the shared Base development tasks:
+
+```sh
+cargo bake --locked test:coverage --all-targets true --all-features true
+```
+
+## Releasing
+
+Prepare a release with `cargo bake cargo:version:patch` (or `minor`, `major`, or `bump --version X.Y.Z`), then run `cargo bake cargo:release` and open a pull request. After review and merge, GitHub Actions publishes the release when the configured `crates-io` environment approves it. Follow the shared [Releasing skill](https://github.com/base-rs/base-project/blob/main/context/releasing.md) for the standard process.
+
+## Releases
+
+Version v0.1.0 is the initial release of the TCP and Rustls endpoints on the `base-scheduler 0.3` interface. See the [release notes](releases.md).
+
+## See Also
+
+- [base-endpoint](https://github.com/base-rs/base-endpoint) — Runtime-independent binding and connecting through Base scheduler capabilities  <!-- bake-readme:package -->
+
+- [base-scheduler](https://github.com/base-rs/base-scheduler) supplies the socket, stream and cancellation capabilities that endpoints use.

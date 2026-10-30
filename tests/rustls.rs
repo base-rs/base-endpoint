@@ -511,15 +511,22 @@ fn cancelled_stream_operations_and_close_preserve_cancellation_and_close_the_tra
                 .await
                 .unwrap();
             // An abort with unread TLS records may reset TCP rather than
-            // delivering a clean transport EOF. Neither is TLS close_notify.
-            assert!(matches!(
-                connection
-                    .read(&scheduler, &mut [0], &Cancellation::never())
-                    .await
-                    .unwrap_err()
-                    .kind(),
-                std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset
-            ));
+            // delivering a clean transport EOF; Windows can report the reset
+            // as an aborted connection. None of these is TLS close_notify.
+            let kind = connection
+                .read(&scheduler, &mut [0], &Cancellation::never())
+                .await
+                .unwrap_err()
+                .kind();
+            assert!(
+                matches!(
+                    kind,
+                    std::io::ErrorKind::UnexpectedEof
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                ),
+                "unexpected error kind {kind:?}"
+            );
             TlsStream::abort(connection, &scheduler).await.unwrap();
             listener.close(&scheduler).await.unwrap();
         };

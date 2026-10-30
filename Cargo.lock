@@ -194,7 +194,7 @@ checksum = "46f2f8db06d87ff80f4f96e56336afcb338b96b444ee8de7fe8919601e8de9b9"
 
 [[package]]
 name = "base-endpoint"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base-scheduler",
  "base-scheduler-direct",
