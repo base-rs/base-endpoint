@@ -10,6 +10,7 @@ use base_scheduler::{
 use event_listener::Event;
 use futures_util::{future::join, task::AtomicWaker};
 use std::{
+    convert::Infallible,
     future::{Future, poll_fn},
     io::{self, BufRead, Read, Write},
     pin::Pin,
@@ -171,6 +172,19 @@ fn closed() -> OperationError {
     io::Error::new(io::ErrorKind::BrokenPipe, "TLS direction is closed").into()
 }
 
+// Register for cancellation wakeups, reporting a requested cancellation. Lanes
+// check the signal first, so there readiness means a concurrent request.
+fn poll_cancelled<T>(
+    cancelled: Pin<&mut impl Future<Output = ()>>,
+    cx: &mut Context<'_>,
+) -> Poll<OperationResult<T>> {
+    if cancelled.poll(cx).is_ready() {
+        Poll::Ready(Err(base_scheduler::Cancelled.into()))
+    } else {
+        Poll::Pending
+    }
+}
+
 async fn wait(
     listener: impl Future<Output = ()> + Send,
     cancellation: &Cancellation,
@@ -178,8 +192,8 @@ async fn wait(
     let mut listener = std::pin::pin!(listener);
     let mut cancelled = std::pin::pin!(cancellation.cancelled());
     std::future::poll_fn(|cx| {
-        if cancelled.as_mut().poll(cx).is_ready() {
-            return std::task::Poll::Ready(Err(base_scheduler::Cancelled.into()));
+        if let Poll::Ready(result) = poll_cancelled(cancelled.as_mut(), cx) {
+            return Poll::Ready(result);
         }
         listener.as_mut().poll(cx).map(Ok)
     })
@@ -236,11 +250,7 @@ impl ReadableStream for EncryptedSocketStreamReader<'_> {
             if let Poll::Ready(Err(error)) = progress {
                 return Poll::Ready(Err(error.into()));
             }
-            if cancelled.as_mut().poll(cx).is_ready() {
-                Poll::Ready(Err(base_scheduler::Cancelled.into()))
-            } else {
-                Poll::Pending
-            }
+            poll_cancelled(cancelled.as_mut(), cx)
         })
         .await
     }
@@ -277,6 +287,8 @@ impl WritableStream for EncryptedSocketStreamWriter<'_> {
                 if state.finished || state.output_closed {
                     return Err(closed());
                 }
+                // A full rustls buffer accepts zero bytes. Rustls reports only
+                // the connection's fatal error, never `WouldBlock`, from writes.
                 match state.tls.writer().write(buffer) {
                     Ok(0) if !buffer.is_empty() => None,
                     Ok(count) => {
@@ -285,7 +297,6 @@ impl WritableStream for EncryptedSocketStreamWriter<'_> {
                         }
                         Some(Ok(count))
                     }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => None,
                     Err(error) => Some(Err(error.into())),
                 }
             };
@@ -311,17 +322,9 @@ impl WritableStream for EncryptedSocketStreamWriter<'_> {
         if self.closed {
             return Err(closed());
         }
-        cancellation.check()?;
-        let ticket = {
-            let state = lock(&self.shared.state);
-            if let Some(error) = &state.failure {
-                return Err(error.error());
-            }
-            if state.delivered >= state.issued {
-                return Ok(());
-            }
-            state.issued
-        };
+        // Delivery checks cancellation, failure and completed output in that
+        // order before waiting, so an already delivered flush needs no wait.
+        let ticket = lock(&self.shared.state).issued;
         self.shared
             .delivered(&self.transmitter, ticket, cancellation)
             .await
@@ -397,7 +400,8 @@ impl<C: Send + 'static> RustlsConnection<C> {
             let transmit_stop = stop.clone();
             let transmit_lifetime = cancellation.clone();
             let transmitter = Arc::new(IoProgress::new(async move {
-                let result = transmit(
+                // Output only stops by failing, including cancellation.
+                let Err(error) = transmit(
                     &transmit_shared,
                     &mut writer,
                     outgoing,
@@ -405,11 +409,9 @@ impl<C: Send + 'static> RustlsConnection<C> {
                     &transmit_stop,
                 )
                 .await;
-                if let Err(error) = result {
-                    if !transmit_stop.is_cancelled() || transmit_lifetime.is_cancelled() {
-                        transmit_shared.fail(error);
-                        transmit_stop.cancel();
-                    }
+                if !transmit_stop.is_cancelled() || transmit_lifetime.is_cancelled() {
+                    transmit_shared.fail(error);
+                    transmit_stop.cancel();
                 }
                 SocketStreamWriter::close(&mut writer).await
             }));
@@ -453,7 +455,9 @@ impl<C: Send + 'static> RustlsConnection<C> {
                         state.issued
                     };
                     if let Err(error) = shared.delivered(&transmitter, ticket, &stop).await {
-                        result = Err(E::from(error));
+                        // A lane failure cancels supervision; report its cause.
+                        let failure = lock(&shared.state).failure.clone();
+                        result = Err(E::from(failure.map_or(error, |failure| failure.error())));
                     }
                 }
                 stop.cancel();
@@ -504,11 +508,7 @@ async fn receive<R: SocketStreamReader>(
             if lock(&shared.state).plaintext == 0 {
                 return Poll::Ready(Ok(()));
             }
-            if cancelled.as_mut().poll(cx).is_ready() {
-                Poll::Ready(Err(OperationError::from(base_scheduler::Cancelled)))
-            } else {
-                Poll::Pending
-            }
+            poll_cancelled(cancelled.as_mut(), cx)
         })
         .await?;
         if position == end {
@@ -548,7 +548,7 @@ async fn transmit<W: SocketStreamWriter>(
     mut buffer: Vec<u8>,
     mut position: usize,
     cancellation: &Cancellation,
-) -> OperationResult<()> {
+) -> OperationResult<Infallible> {
     let mut end = buffer.len();
     let mut dirty = position != end;
     // Keep initialized storage between records. The valid ciphertext range is
@@ -575,9 +575,11 @@ async fn transmit<W: SocketStreamWriter>(
         let ticket = {
             let mut state = lock(&shared.state);
             if state.tls.wants_write() {
+                // Rustls reports only destination errors; a memory cursor has none.
                 end = state
                     .tls
-                    .write_tls(&mut io::Cursor::new(buffer.as_mut_slice()))?;
+                    .write_tls(&mut io::Cursor::new(buffer.as_mut_slice()))
+                    .expect("writing TLS records to memory cannot fail");
             }
             if end == 0 && (dirty || state.delivered < state.issued) {
                 Some(state.issued)
@@ -605,11 +607,7 @@ async fn transmit<W: SocketStreamWriter>(
                     return Poll::Ready(Ok(()));
                 }
                 drop(state);
-                if cancelled.as_mut().poll(cx).is_ready() {
-                    Poll::Ready(Err(OperationError::from(base_scheduler::Cancelled)))
-                } else {
-                    Poll::Pending
-                }
+                poll_cancelled(cancelled.as_mut(), cx)
             })
             .await?;
         }
