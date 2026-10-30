@@ -88,18 +88,18 @@ dependencies = [
 
 [[package]]
 name = "base-scheduler"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30df8b2201e81ef4e8a0dc58491fc0302f4551bd6e080c15bac77d401c955a37"
+checksum = "705d8e4437d3c979a8ed14d8c0da110cb93ee2857a5bd4d3c6ec0fd17a2152d5"
 dependencies = [
  "event-listener",
 ]
 
 [[package]]
 name = "base-scheduler-direct"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7d6dec1274f1fd85fb208ea8b1aafeaf17815a8aaf7da5156ae608ffbc047d4"
+checksum = "a97f3917a7a217ce0921ab2789b5b40206ee011a99652c00cf883be6649df21e"
 dependencies = [
  "async-task",
  "base-scheduler",
@@ -113,9 +113,9 @@ dependencies = [
 
 [[package]]
 name = "base-scheduler-tokio"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "facc9104331aa10731d204f9ef51018dccd0813472ed9b96452c3f3255593308"
+checksum = "0862c13231cc819b810528b9059cc83d70c72161ece88f7c03bace1e813499bd"
 dependencies = [
  "async-io",
  "base-scheduler",
