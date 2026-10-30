@@ -1,11 +1,14 @@
 // Released under the MIT License.
 // Copyright, 2026, by Samuel Williams.
 
-use base_endpoint::{AddressEndpoint, BindEndpoint, BindOptions, ConnectEndpoint, HostEndpoint};
+use base_endpoint::{
+    AddressEndpoint, BindEndpoint, BindOptions, ConnectEndpoint, HostEndpoint,
+    stream::{ReadableStream, WritableStream},
+};
 use base_scheduler::{
     AddressResolution, Cancellation, Clock, SocketAccept, SocketBind, SocketClose, SocketConnect,
-    SocketDomain, SocketListen, SocketLocalAddress, SocketOpen, SocketStreamReader,
-    SocketStreamReading, SocketStreamWriter, SocketStreamWriting,
+    SocketDomain, SocketListen, SocketLocalAddress, SocketOpen, SocketStreamReading,
+    SocketStreamWriting,
 };
 use base_scheduler_direct::{DirectOptions, DirectScheduler};
 use base_scheduler_tokio::TokioScheduler;
@@ -111,9 +114,19 @@ where
     S: SocketStreamReading + SocketStreamWriting,
     S::Socket: 'static,
 {
-    let never = Cancellation::never();
+    // Socket lanes provide the plaintext stream contracts directly.
     let mut reader = scheduler.socket_stream_reader(socket).unwrap();
     let mut writer = scheduler.socket_stream_writer(socket).unwrap();
+    transfer(&mut reader, &mut writer, expected, reply).await;
+}
+
+async fn transfer(
+    reader: &mut impl ReadableStream,
+    writer: &mut impl WritableStream,
+    expected: &[u8],
+    reply: &[u8],
+) {
+    let never = Cancellation::never();
     let mut received = vec![0; expected.len()];
     let mut offset = 0;
     while offset < received.len() {
@@ -132,8 +145,8 @@ where
         offset += count;
     }
     writer.flush(&never).await.unwrap();
-    reader.close().await.unwrap();
-    writer.close().await.unwrap();
+    ReadableStream::close(reader).await.unwrap();
+    WritableStream::close(writer).await.unwrap();
 }
 
 #[test]

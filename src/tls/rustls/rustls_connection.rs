@@ -242,9 +242,11 @@ impl<C> RustlsConnection<C> {
                     break;
                 }
                 self.outgoing.resize(BUFFER_SIZE, 0);
+                // Rustls reports only destination errors; a memory cursor has none.
                 let count = self
                     .state
-                    .write_tls(&mut io::Cursor::new(self.outgoing.as_mut_slice()))?;
+                    .write_tls(&mut io::Cursor::new(self.outgoing.as_mut_slice()))
+                    .expect("writing TLS records to memory cannot fail");
                 self.outgoing.truncate(count);
             }
             let count = writer
