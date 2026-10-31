@@ -64,6 +64,7 @@ Prepare a release with `cargo bake cargo:version:patch` (or `minor`, `major`, or
 ## Releases
 
 <!-- bake-readme:releases:start -->
+
 See [releases.md](releases.md) for the full release history.
 
 ### v0.1.0
@@ -76,6 +77,7 @@ Initial release of the runtime-independent endpoints. Requires Rust 1.87 or late
 - Wrap endpoints with TLS through `tls::{TlsClientEndpoint, TlsServerEndpoint, TlsListener}` over the `TlsConnector`, `TlsAcceptor` and `TlsStream` contracts. `TlsSession` reports the negotiated ALPN protocol, and a failed handshake leaves a `TlsListener` usable.
 - With the `rustls` feature, provide `RustlsConnector`, `RustlsAcceptor` and `RustlsConnection`, with sequential reads and writes, `shutdown`, `close` and `abort`. `RustlsConnection::with_duplex` runs an application with independent encrypted reader and writer handles, spawns no task, and joins lane retirement and socket closure before returning. A transport failure while it sends `close_notify` is reported as that failure rather than as cancellation.
 - Depend on the published `base-scheduler 0.3` interface; no concrete runtime is a production dependency.
+
 <!-- bake-readme:releases:end -->
 
 ## See Also
