@@ -8,10 +8,10 @@
 //! ```rust
 //! use base_endpoint::{BindEndpoint, BindOptions, ConnectEndpoint, HostEndpoint};
 //! use base_scheduler::{Cancellation, SocketAccept, SocketClose, SocketLocalAddress};
-//! use base_scheduler_direct::{DirectOptions, DirectScheduler};
+//! use base_scheduler_native::NativeScheduler;
 //!
-//! futures_lite::future::block_on(async {
-//!     let scheduler = DirectScheduler::new(DirectOptions::default())?;
+//! let scheduler = NativeScheduler::new()?;
+//! scheduler.block_on(async {
 //!     let cancellation = Cancellation::never();
 //!
 //!     let listeners = HostEndpoint::new("127.0.0.1", 0)
