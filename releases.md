@@ -1,5 +1,10 @@
 # Releases
 
+## v0.2.0
+
+- **Breaking:** add the required `ReadableStream::try_read_into`, which attempts one read now without waiting. Scheduler stream readers forward it to `SocketStreamReader::try_read_into`, and the rustls duplex reader drives its receive lane to read the socket immediately. Implementations outside this crate must add it; wrappers should forward it.
+- **Breaking:** depend on `base-scheduler 0.4`, whose capability traits appear in this crate's public API.
+
 ## v0.1.0
 
 Initial release of the runtime-independent endpoints. Requires Rust 1.87 or later. The API is experimental.
