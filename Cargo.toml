@@ -17,7 +17,7 @@ event-listener = { version = "5.4.2", optional = true }
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc", "async-await"], optional = true }
 
 [dev-dependencies]
-base-scheduler-direct = "0.3.0"
+base-scheduler-native = "0.3.1"
 base-scheduler-tokio = "0.3.0"
 futures-lite = "2.6.1"
 rcgen = "0.14.7"

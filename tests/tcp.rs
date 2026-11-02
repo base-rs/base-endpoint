@@ -10,7 +10,7 @@ use base_scheduler::{
     SocketDomain, SocketListen, SocketLocalAddress, SocketOpen, SocketStreamReading,
     SocketStreamWriting,
 };
-use base_scheduler_direct::{DirectOptions, DirectScheduler};
+use base_scheduler_native::{NativeOptions, NativeScheduler};
 use base_scheduler_tokio::TokioScheduler;
 use futures_lite::future::block_on;
 use std::{
@@ -150,10 +150,12 @@ async fn transfer(
 }
 
 #[test]
-fn direct_scheduler_tcp_establishment_and_io() {
-    let scheduler = DirectScheduler::new(DirectOptions {
+fn native_scheduler_tcp_establishment_and_io() {
+    let scheduler = NativeScheduler::with_options(NativeOptions {
+        workers: 2,
         threads: 2,
         capacity: 16,
+        ..Default::default()
     })
     .unwrap();
     block_on(async {

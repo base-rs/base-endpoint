@@ -15,7 +15,7 @@ use base_scheduler::{
     SocketListen, SocketLocalAddress, SocketOpen, SocketStreamReader, SocketStreamReading,
     SocketStreamWriting,
 };
-use base_scheduler_direct::{DirectOptions, DirectScheduler};
+use base_scheduler_native::{NativeOptions, NativeScheduler};
 use base_scheduler_tokio::TokioScheduler;
 use futures_lite::future::{block_on, zip};
 use rustls::{
@@ -59,10 +59,12 @@ fn configs(tls12: bool) -> (Arc<ClientConfig>, Arc<ServerConfig>) {
     (Arc::new(client), Arc::new(server))
 }
 
-fn direct() -> DirectScheduler {
-    DirectScheduler::new(DirectOptions {
+fn native() -> NativeScheduler {
+    NativeScheduler::with_options(NativeOptions {
+        workers: 2,
         threads: 2,
         capacity: 32,
+        ..Default::default()
     })
     .unwrap()
 }
@@ -200,8 +202,8 @@ where
 }
 
 #[test]
-fn tls12_and_tls13_round_trips_with_direct_scheduler() {
-    let scheduler = direct();
+fn tls12_and_tls13_round_trips_with_native_scheduler() {
+    let scheduler = native();
     block_on(async {
         round_trip(&scheduler).await;
         scheduler.shutdown().await;
@@ -223,7 +225,7 @@ fn tls12_and_tls13_round_trips_with_tokio_scheduler() {
 
 #[test]
 fn client_interoperates_with_blocking_rustls_and_reports_truncated_tls() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         for graceful in [false, true] {
             let (client_config, server_config) = configs(false);
@@ -289,7 +291,7 @@ fn client_interoperates_with_blocking_rustls_and_reports_truncated_tls() {
 
 #[test]
 fn server_interoperates_with_blocking_rustls_client() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         let (client_config, server_config) = configs(false);
         let server = TlsServerEndpoint::new(
@@ -350,7 +352,7 @@ fn server_interoperates_with_blocking_rustls_client() {
 
 #[test]
 fn invalid_names_untrusted_certificates_and_alpn_mismatch_fail_without_plaintext_fallback() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         for failure in ["wrong-name", "untrusted", "alpn", "invalid-name"] {
             let (mut client_config, server_config) = configs(false);
@@ -404,7 +406,7 @@ fn invalid_names_untrusted_certificates_and_alpn_mismatch_fail_without_plaintext
 
 #[test]
 fn cancellation_during_client_handshake_closes_the_plain_transport() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         let (client_config, _) = configs(false);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -437,7 +439,7 @@ fn cancellation_during_client_handshake_closes_the_plain_transport() {
 
 #[test]
 fn precancelled_providers_close_consumed_transports() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         for client in [false, true] {
             let (client_config, server_config) = configs(false);
@@ -487,7 +489,7 @@ fn precancelled_providers_close_consumed_transports() {
 
 #[test]
 fn cancelled_stream_operations_and_close_preserve_cancellation_and_close_the_transport() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         let (client_config, server_config) = configs(false);
         let server = TlsServerEndpoint::new(
@@ -565,7 +567,7 @@ fn cancelled_stream_operations_and_close_preserve_cancellation_and_close_the_tra
 
 #[test]
 fn server_handshake_reports_eof_and_handles_cancellation_while_waiting_for_client_finished() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         for cancel in [false, true] {
             let (client_config, server_config) = configs(false);
@@ -623,7 +625,7 @@ fn server_handshake_reports_eof_and_handles_cancellation_while_waiting_for_clien
 
 #[test]
 fn supplied_rustls_configuration_supports_mutual_tls_and_no_alpn() {
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         let (server_cert, server_key) = identity();
         let (client_cert, client_key) = identity();
@@ -687,7 +689,7 @@ fn supplied_rustls_configuration_supports_mutual_tls_and_no_alpn() {
 #[test]
 fn duplex_stream_interoperates_with_blocking_peer_under_backpressure() {
     use base_endpoint::stream::{ReadableStream, WritableStream};
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         for tls12 in [false, true] {
             let (client_config, server_config) = configs(tls12);
@@ -782,7 +784,7 @@ fn duplex_io_runs_without_polling_its_supervisor() {
     use futures_lite::future::poll_once;
     use std::sync::Mutex;
 
-    let scheduler = direct();
+    let scheduler = native();
     block_on(async {
         for tls12 in [false, true] {
             let (client_config, server_config) = configs(tls12);
@@ -871,7 +873,7 @@ fn duplex_io_runs_without_polling_its_supervisor() {
 #[test]
 fn duplex_lifetime_cancellation_wakes_a_read_with_an_independent_signal() {
     use base_endpoint::stream::ReadableStream;
-    let scheduler = direct();
+    let scheduler = native();
     let (client_config, server_config) = configs(false);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -924,7 +926,7 @@ fn duplex_lifetime_cancellation_wakes_a_read_with_an_independent_signal() {
 #[test]
 fn duplex_input_reports_tls_truncation_after_consuming_authenticated_plaintext() {
     use base_endpoint::stream::ReadableStream;
-    let scheduler = direct();
+    let scheduler = native();
     let (client_config, server_config) = configs(false);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

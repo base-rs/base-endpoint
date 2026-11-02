@@ -10,16 +10,16 @@ Add the crate together with the scheduler interface it uses:
 cargo add base-endpoint base-scheduler
 ```
 
-The API is experimental. This example binds a loopback listener and connects to it with the Direct scheduler and `futures-lite`; add them with `cargo add base-scheduler-direct futures-lite` to run it:
+The API is experimental. This example binds a loopback listener and connects to it with the Native scheduler; add it with `cargo add base-scheduler-native` to run it:
 
 ```rust
 use base_endpoint::{BindEndpoint, BindOptions, ConnectEndpoint, HostEndpoint};
 use base_scheduler::{Cancellation, OperationError, SocketAccept, SocketClose, SocketLocalAddress};
-use base_scheduler_direct::{DirectOptions, DirectScheduler};
+use base_scheduler_native::NativeScheduler;
 
 fn main() -> Result<(), OperationError> {
-    futures_lite::future::block_on(async {
-        let scheduler = DirectScheduler::new(DirectOptions::default())?;
+    let scheduler = NativeScheduler::new()?;
+    scheduler.block_on(async {
         let cancellation = Cancellation::never();
 
         let listeners = HostEndpoint::new("127.0.0.1", 0)
