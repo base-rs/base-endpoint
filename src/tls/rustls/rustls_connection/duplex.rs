@@ -183,6 +183,17 @@ impl Shared {
     }
 }
 
+// Immediate reads report a cancelled lane as aborted: `Interrupted` would
+// invite a retry, but the lane never resumes.
+fn immediate_error(error: OperationError) -> io::Error {
+    match error {
+        OperationError::Cancelled(cancelled) => {
+            io::Error::new(io::ErrorKind::ConnectionAborted, cancelled)
+        }
+        OperationError::Io(error) => error,
+    }
+}
+
 fn closed() -> OperationError {
     io::Error::new(io::ErrorKind::BrokenPipe, "TLS direction is closed").into()
 }
@@ -274,12 +285,12 @@ impl ReadableStream for EncryptedSocketStreamReader<'_> {
             return Ok(0);
         }
         if let Some(result) = self.shared.read(buffer) {
-            return result.map_err(io::Error::from);
+            return result.map_err(immediate_error);
         }
         lock(&self.shared.state).immediate += 1;
         let progress = self.receiver.poll_now();
         if let Some(result) = self.shared.read(buffer) {
-            return result.map_err(io::Error::from);
+            return result.map_err(immediate_error);
         }
         if let Poll::Ready(Err(error)) = progress {
             return Err(error);

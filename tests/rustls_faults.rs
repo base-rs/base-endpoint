@@ -56,6 +56,9 @@ struct Faults {
     reader_close_error: bool,
     reader_close_pending: bool,
     immediate_read_error: bool,
+    // Borrowed reads stay pending even with input queued, as a reader waiting
+    // on cached readiness does; immediate reads still reach it.
+    read_stalled: bool,
     writer_close_error: bool,
     socket_close_error: bool,
     cancel_on_write: Option<Cancellation>,
@@ -106,9 +109,14 @@ impl SocketStreamReader for Reader<'_> {
         cancellation: &Cancellation,
     ) -> OperationResult<usize> {
         poll_fn(|_| {
-            if self.0.faults().read_error {
+            let faults = self.0.faults();
+            if faults.read_error {
                 return Poll::Ready(Err(failure(ErrorKind::ConnectionReset)));
             }
+            if faults.read_stalled {
+                return Poll::Pending;
+            }
+            drop(faults);
             let mut wire = self.0.inbound.lock().unwrap();
             if !wire.bytes.is_empty() {
                 let count = buffer.len().min(wire.bytes.len());
@@ -1142,6 +1150,65 @@ fn duplex_immediate_reads_report_transport_failures() {
         ),
     );
     assert_eq!(io_kind(&result.unwrap_err()), ErrorKind::ConnectionReset);
+}
+
+#[test]
+fn duplex_immediate_reads_drain_records_a_pending_read_has_not_seen() {
+    let memory = Memory::default();
+    let mut peer = Peer::new();
+    let connection = connect(&memory, &mut peer);
+    memory.faults().read_stalled = true;
+    peer.send(&memory, b"ab");
+    peer.send(&memory, b"cdef");
+    let faults = &memory;
+    let received = run(
+        &memory,
+        &mut peer,
+        connection.with_duplex(
+            &memory,
+            &Cancellation::never(),
+            |mut reader, _writer| async move {
+                let mut received = Vec::new();
+                let mut buffer = [0; 3];
+                loop {
+                    match reader.try_read_into(&mut buffer) {
+                        Ok(count) => received.extend_from_slice(&buffer[..count]),
+                        Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                        Err(error) => return Err(OperationError::from(error)),
+                    }
+                }
+                // Let teardown observe cancellation through the borrowed read.
+                faults.faults().read_stalled = false;
+                Ok(received)
+            },
+        ),
+    )
+    .unwrap();
+    assert_eq!(received, b"abcdef");
+}
+
+#[test]
+fn duplex_immediate_reads_report_lifetime_cancellation_as_aborted() {
+    let memory = Memory::default();
+    let mut peer = Peer::new();
+    let connection = connect(&memory, &mut peer);
+    let lifetime = Cancellation::new();
+    let cancel = &lifetime;
+    let result = run(
+        &memory,
+        &mut peer,
+        connection.with_duplex(&memory, &lifetime, |mut reader, _writer| async move {
+            cancel.cancel();
+            let error = reader.try_read_into(&mut [0]).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::ConnectionAborted);
+            assert_eq!(
+                reader.try_read_into(&mut [0]).unwrap_err().kind(),
+                ErrorKind::ConnectionAborted
+            );
+            Err::<(), _>(OperationError::from(error))
+        }),
+    );
+    assert_eq!(io_kind(&result.unwrap_err()), ErrorKind::ConnectionAborted);
 }
 
 #[test]
