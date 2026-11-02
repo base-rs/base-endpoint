@@ -961,3 +961,113 @@ fn duplex_input_reports_tls_truncation_after_consuming_authenticated_plaintext()
     });
     peer.join().unwrap();
 }
+
+#[test]
+fn duplex_immediate_reads_reach_the_transport_without_waiting() {
+    use base_endpoint::stream::ReadableStream;
+    use base_scheduler::Spawn;
+    // One worker, kept busy below, publishes no readiness to the receive lane.
+    let scheduler = NativeScheduler::with_options(NativeOptions {
+        workers: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    let (client_config, server_config) = configs(false);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (proceed, next) = std::sync::mpsc::channel::<()>();
+    let peer = std::thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let mut stream = rustls::StreamOwned::new(
+            rustls::ServerConnection::new(server_config).unwrap(),
+            socket,
+        );
+        stream.write_all(b"a").unwrap();
+        stream.flush().unwrap();
+        next.recv().unwrap();
+        stream.write_all(b"b").unwrap();
+        stream.flush().unwrap();
+        next.recv().unwrap();
+        stream.conn.send_close_notify();
+        stream.flush().unwrap();
+    });
+    // Retry without yielding, so only immediate reads can drive the receive lane.
+    fn attempt(
+        mut read: impl FnMut() -> std::io::Result<usize>,
+        patience: Duration,
+    ) -> std::io::Result<usize> {
+        let start = std::time::Instant::now();
+        loop {
+            let result = read();
+            let waiting =
+                matches!(&result, Err(error) if error.kind() == std::io::ErrorKind::WouldBlock);
+            if !waiting || start.elapsed() >= patience {
+                return result;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let delivery = Duration::from_secs(10);
+    block_on(async {
+        scheduler
+            .timeout(Duration::from_secs(15), async {
+                let endpoint = TlsClientEndpoint::new(
+                    AddressEndpoint::new(address),
+                    RustlsConnector::new(client_config),
+                    "localhost",
+                );
+                let connection = endpoint
+                    .connect(&scheduler, &Cancellation::never())
+                    .await
+                    .unwrap();
+                let scheduler = &scheduler;
+                connection
+                    .with_duplex(
+                        scheduler,
+                        &Cancellation::never(),
+                        |mut reader, _writer| async move {
+                            let mut data = [0; 4];
+                            assert_eq!(
+                                reader.read_into(&mut data, &Cancellation::never()).await?,
+                                1
+                            );
+                            assert_eq!(&data[..1], b"a");
+                            let (started, busy) = std::sync::mpsc::channel();
+                            let (release, released) = std::sync::mpsc::channel::<()>();
+                            let task = scheduler
+                                .spawn(async move {
+                                    started.send(()).unwrap();
+                                    released.recv().unwrap();
+                                })
+                                .unwrap();
+                            busy.recv_timeout(Duration::from_secs(10)).unwrap();
+                            let quiet = attempt(
+                                || reader.try_read_into(&mut data),
+                                Duration::from_millis(5),
+                            );
+                            assert_eq!(quiet.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+                            proceed.send(()).unwrap();
+                            assert_eq!(attempt(|| reader.try_read_into(&mut data), delivery)?, 1);
+                            assert_eq!(&data[..1], b"b");
+                            proceed.send(()).unwrap();
+                            assert_eq!(attempt(|| reader.try_read_into(&mut data), delivery)?, 0);
+                            release.send(()).unwrap();
+                            task.await.unwrap();
+                            assert_eq!(
+                                reader.read_into(&mut data, &Cancellation::never()).await?,
+                                0
+                            );
+                            ReadableStream::close(&mut reader).await?;
+                            assert_eq!(reader.try_read_into(&mut data)?, 0);
+                            Ok::<(), OperationError>(())
+                        },
+                    )
+                    .await
+                    .unwrap();
+            })
+            .await
+            .unwrap();
+        scheduler.shutdown().await;
+    });
+    peer.join().unwrap();
+}

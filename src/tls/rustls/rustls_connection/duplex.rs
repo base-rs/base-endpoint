@@ -55,6 +55,9 @@ struct State {
     failure: Option<Failure>,
     finished: bool,
     output_closed: bool,
+    // Incremented by each immediate read; receive retries the socket at once
+    // until it has seen no input for the latest request.
+    immediate: u64,
 }
 struct Shared {
     state: Mutex<State>,
@@ -103,13 +106,22 @@ impl<'scope> IoProgress<'scope> {
         }
     }
     fn poll(&self, cx: &mut Context<'_>, foreground: bool) -> Poll<io::Result<()>> {
-        let mut progress = lock(&self.progress);
-        if let Some(work) = &mut progress.work {
+        self.advance(|| {
             if foreground {
                 self.wake.foreground.register(cx.waker());
             } else {
                 self.wake.background.register(cx.waker());
             }
+        })
+    }
+    // Poll once with the stable waker, leaving registered pollers in place.
+    fn poll_now(&self) -> Poll<io::Result<()>> {
+        self.advance(|| {})
+    }
+    fn advance(&self, register: impl FnOnce()) -> Poll<io::Result<()>> {
+        let mut progress = lock(&self.progress);
+        if let Some(work) = &mut progress.work {
+            register();
             let mut cx = Context::from_waker(&self.waker);
             if let Poll::Ready(result) = work.as_mut().poll(&mut cx) {
                 progress.work = None;
@@ -117,6 +129,9 @@ impl<'scope> IoProgress<'scope> {
                 self.wake.wake_by_ref();
             }
         }
+        Self::result(&progress)
+    }
+    fn result(progress: &ProgressState<'_>) -> Poll<io::Result<()>> {
         match &progress.result {
             Some(Ok(())) => Poll::Ready(Ok(())),
             Some(Err(error)) => Poll::Ready(Err(io::Error::new(error.kind(), error.clone()))),
@@ -253,6 +268,23 @@ impl ReadableStream for EncryptedSocketStreamReader<'_> {
             poll_cancelled(cancelled.as_mut(), cx)
         })
         .await
+    }
+    fn try_read_into(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.closed {
+            return Ok(0);
+        }
+        if let Some(result) = self.shared.read(buffer) {
+            return result.map_err(io::Error::from);
+        }
+        lock(&self.shared.state).immediate += 1;
+        let progress = self.receiver.poll_now();
+        if let Some(result) = self.shared.read(buffer) {
+            return result.map_err(io::Error::from);
+        }
+        if let Poll::Ready(Err(error)) = progress {
+            return Err(error);
+        }
+        Err(io::ErrorKind::WouldBlock.into())
     }
     async fn close(&mut self) -> io::Result<()> {
         self.closed = true;
@@ -391,6 +423,7 @@ impl<C: Send + 'static> RustlsConnection<C> {
                     failure: None,
                     finished: false,
                     output_closed: false,
+                    immediate: 0,
                 }),
                 writable: Event::new(),
                 transmit: AtomicWaker::new(),
@@ -498,6 +531,7 @@ async fn receive<R: SocketStreamReader>(
     let mut buffer = vec![0; CAPACITY.max(initial.len())];
     buffer[..initial.len()].copy_from_slice(initial);
     let (mut position, mut end) = (0, initial.len());
+    let mut immediate = 0;
     let mut cancelled = std::pin::pin!(cancellation.cancelled());
     loop {
         // Once plaintext is available, return it to the consumer before
@@ -512,7 +546,29 @@ async fn receive<R: SocketStreamReader>(
         })
         .await?;
         if position == end {
-            let count = reader.read_into(&mut buffer, cancellation).await?;
+            // A pending borrowed read has consumed nothing, so an immediate
+            // read may abandon it and read the socket into the same storage.
+            let ready = {
+                let mut read = std::pin::pin!(reader.read_into(&mut buffer, cancellation));
+                poll_fn(|cx| match read.as_mut().poll(cx) {
+                    Poll::Pending if lock(&shared.state).immediate != immediate => {
+                        Poll::Ready(None)
+                    }
+                    progress => progress.map(Some),
+                })
+                .await
+            };
+            let count = match ready {
+                Some(result) => result?,
+                None => match reader.try_read_into(&mut buffer) {
+                    Ok(count) => count,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        immediate = lock(&shared.state).immediate;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                },
+            };
             if count == 0 {
                 let mut state = lock(&shared.state);
                 state.tls.read_tls(&mut io::empty())?;

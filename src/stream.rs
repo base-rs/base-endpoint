@@ -18,6 +18,9 @@ pub trait ReadableStream: Send {
         cancellation: &Cancellation,
     ) -> impl Future<Output = OperationResult<usize>> + Send;
 
+    /// Attempt one read now, without waiting. Unlike polling [`read_into`](Self::read_into) once, this reaches the transport, so it observes input, EOF and errors already queued there. `WouldBlock` means no input is available now. Wrappers must forward this rather than polling a read.
+    fn try_read_into(&mut self, buffer: &mut [u8]) -> io::Result<usize>;
+
     /// Retire this direction. Transport ownership and final closure are separate.
     fn close(&mut self) -> impl Future<Output = io::Result<()>> + Send;
 }
@@ -49,6 +52,9 @@ impl<R: SocketStreamReader> ReadableStream for R {
         cancellation: &Cancellation,
     ) -> OperationResult<usize> {
         SocketStreamReader::read_into(self, buffer, cancellation).await
+    }
+    fn try_read_into(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        SocketStreamReader::try_read_into(self, buffer)
     }
     async fn close(&mut self) -> io::Result<()> {
         SocketStreamReader::close(self).await

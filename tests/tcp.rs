@@ -138,6 +138,9 @@ async fn transfer(
         offset += count;
     }
     assert_eq!(received, expected);
+    // The peer sends nothing more until it has the reply.
+    let error = reader.try_read_into(&mut [0]).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     let mut offset = 0;
     while offset < reply.len() {
         let count = writer.write(&reply[offset..], &never).await.unwrap();
