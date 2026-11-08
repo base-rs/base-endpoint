@@ -1,8 +1,8 @@
 # Releases
 
-## Unreleased
+## v0.3.0
 
-- **Breaking:** depend on `base-scheduler 0.5`, whose capability traits appear in this crate's public API. This crate reads sockets only through `read_into` and `try_read_into`, whose behavior 0.5 leaves unchanged, so the readiness rule that 0.5 extends to the other consuming reads does not affect its streams or rustls connections. `ReadableStream` has no vectored read, so it does not carry the scheduler's new `try_read_vectored`.
+- **Breaking:** depend on `base-scheduler 0.5`, whose capability traits appear in this crate's public API. This crate reads sockets only through `read_into` and `try_read_into`, whose contract 0.5 leaves unchanged, so the readiness rule that 0.5 extends to the other consuming reads does not affect its streams or rustls connections. `ReadableStream` has no vectored read, so it does not carry the scheduler's new `try_read_vectored`.
 
 ## v0.2.0
 

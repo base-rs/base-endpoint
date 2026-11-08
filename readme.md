@@ -67,6 +67,10 @@ Prepare a release with `cargo bake cargo:version:patch` (or `minor`, `major`, or
 
 See [releases.md](releases.md) for the full release history.
 
+### v0.3.0
+
+- **Breaking:** depend on `base-scheduler 0.5`, whose capability traits appear in this crate's public API. This crate reads sockets only through `read_into` and `try_read_into`, whose contract 0.5 leaves unchanged, so the readiness rule that 0.5 extends to the other consuming reads does not affect its streams or rustls connections. `ReadableStream` has no vectored read, so it does not carry the scheduler's new `try_read_vectored`.
+
 ### v0.2.0
 
 - **Breaking:** add the required `ReadableStream::try_read_into`, which attempts one read now without waiting. Scheduler stream readers forward it to `SocketStreamReader::try_read_into`, and the rustls duplex reader drives its receive lane to read the socket immediately. Implementations outside this crate must add it; wrappers should forward it.
