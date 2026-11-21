@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## v0.4.0
 
 - **Breaking:** depend on `base-scheduler 0.6`, whose capability traits appear in this crate's public API. This crate reads only streams and constructs no `SocketRecvResult`, so 0.6's packet ECN, including the new `SocketRecvResult::ecn` field, does not affect its streams or rustls connections.
 
